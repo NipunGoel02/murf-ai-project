@@ -1,5 +1,6 @@
+import asyncio
 import logging
-
+import re 
 from dotenv import load_dotenv
 from livekit import rtc
 from livekit.agents import (
@@ -12,6 +13,7 @@ from livekit.agents import (
     inference,
     tokenize,
     room_io,
+    UserInputTranscribedEvent,
 )
 from livekit.plugins import murf, silero, google, deepgram, noise_cancellation
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
@@ -22,7 +24,7 @@ load_dotenv(".env.local")
 
 # Change this prompt to change what your voice agent does.
 # See README.md for example prompts (customer support, language tutor, receptionist).
-SYSTEM_PROMPT = """You are a friendly and efficient customer support agent for a tech company. Help users with account issues, billing questions, and product troubleshooting. Be concise, empathetic, and solution-oriented. If you don't know something, say so honestly and offer to escalate. Your responses are concise and without complex formatting, emojis, or symbols."""
+SYSTEM_PROMPT = """You are a professional receptionist for a medical clinic. Help callers schedule appointments, answer questions about office hours and services, and take messages for doctors. Be warm but efficient. Ask for the caller's name and reason for calling upfront."""
 
 
 class Assistant(Agent):
@@ -69,7 +71,7 @@ async def my_agent(ctx: JobContext):
     session = AgentSession(
         # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
         # See all available models at https://docs.livekit.io/agents/models/stt/
-        stt=deepgram.STT(model="nova-3"),
+        stt=deepgram.STT(model="nova-3", language = "multi"),
         # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
         # See all available models at https://docs.livekit.io/agents/models/llm/
         llm=google.LLM(
@@ -78,8 +80,7 @@ async def my_agent(ctx: JobContext):
         # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
         # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
         tts=murf.TTS(
-                voice="Anisha", 
-                locale="en-IN",
+                voice="hi-IN-anisha", 
                 style="Conversation",
                 tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=2),
                 text_pacing=True
@@ -92,6 +93,101 @@ async def my_agent(ctx: JobContext):
         # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
         preemptive_generation=True,
     )
+
+    @session.on("user_input_transcribed")
+    def on_user_input_transcribed(ev: UserInputTranscribedEvent):
+        asyncio.create_task(handle_user_input_transcribed(ev))
+
+    async def handle_user_input_transcribed(ev: UserInputTranscribedEvent):
+
+        transcript = ev.text.strip().lower()
+
+        if not transcript:
+            return
+
+        # Check for Devanagari (Native Hindi)
+        has_devanagari = any(
+            '\u0900' <= ch <= '\u097F'
+            for ch in transcript
+        )
+
+        # Common Hindi / Hinglish keywords
+        hindi_keywords = {
+
+            # Greetings
+            "namaste","namaskar","helloji","ramram","pranam",
+
+            # Pronouns
+            "main","mai","mein","me","mera","meri","mere",
+            "mujhe","mujhko","hum","ham","hamara","hamari",
+            "aap","ap","tum","tumhara","tumhari","tumhe",
+            "bhai","behen","sir","madam","ji",
+
+            # Common words
+            "hai","hu","ho","tha","thi","the","hoga","hogi",
+            "haan","han","ha","nahi","nahin","na","acha","achha",
+            "theek","thik","bilkul","jarur","zarur","please",
+
+            # Question words
+            "kya","kaise","kab","kahan","kidhar","kyu","kyon",
+            "kaun","kis","kitna","kitni","kitne","kaunsa",
+
+            # Time
+            "aaj","kal","abhi","subah","dopahar","shaam","raat",
+            "ab","baad","pehle","phir",
+
+            # Medical
+            "doctor","hospital","clinic","appointment",
+            "bukhar","fever","dard","pain","khansi","cough",
+            "sardi","cold","gala","pet","sar","headache",
+            "ulti","vomit","chakkar","injury","emergency",
+            "medicine","dawai","tablet","checkup","test",
+            "blood","sugar","bp","pressure","oxygen",
+            "breathing","saans","operation","surgery",
+
+            # Actions
+            "karna","karni","karo","kar","book","cancel",
+            "reschedule","milna","jana","aana","dekhna",
+            "batana","sunna","madad","help","chahiye",
+            "hona","ho","bolna","boliye","bataye","batana",
+
+            # Relations
+            "maa","papa","pitaji","mataji","bhai","behen",
+            "beta","beti","uncle","aunty","dada","dadi",
+            "nana","nani","wife","husband","bacha","baccha",
+
+            # Misc
+            "haanji","jihaan","shukriya","dhanyawad",
+            "kripya","please","urgent","jaldi"
+        }
+
+        # Split into words
+        words = set(re.findall(r"[a-zA-Z\u0900-\u097F]+", transcript))
+
+        # Count Hindi keywords
+        matched_words = words.intersection(hindi_keywords)
+
+        has_hindi_words = len(matched_words) > 0
+
+        if has_devanagari or has_hindi_words:
+
+            logger.info(
+                f"Detected Hindi/Hinglish speech: {transcript} | Matched: {matched_words}"
+            )
+
+            session.tts.update_options(
+                voice="hi-IN-anisha"
+            )
+
+        else:
+
+            logger.info(
+                f"Detected English speech: {transcript}"
+            )
+
+            session.tts.update_options(
+                voice="en-IN-anisha"
+            )
 
     # To use a realtime model instead of a voice pipeline, use the following session setup instead.
     # (Note: This is for the OpenAI Realtime API. For other providers, see https://docs.livekit.io/agents/models/realtime/))
