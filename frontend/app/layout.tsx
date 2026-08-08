@@ -71,31 +71,25 @@ export default async function RootLayout({ children }: RootLayoutProps) {
           enableSystem
           disableTransitionOnChange
         >
-          <header className="fixed top-0 left-0 z-50 hidden w-full flex-row justify-between p-6 md:flex">
-            <a
-              target="_blank"
-              rel="noopener noreferrer"
-              href="https://livekit.io"
-              className="scale-100 transition-transform duration-300 hover:scale-110"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={logo} alt={`${companyName} Logo`} className="block size-6 dark:hidden" />
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={logoDark ?? logo}
-                alt={`${companyName} Logo`}
-                className="hidden size-6 dark:block"
-              />
-            </a>
-            <span className="text-foreground font-mono text-xs font-bold tracking-wider uppercase">
-              Built with{' '}
+          <header className="fixed top-0 left-0 z-50 hidden w-full flex-row justify-between items-center p-6 md:flex pointer-events-none">
+            <div className="flex items-center gap-2 pointer-events-auto bg-slate-900/80 border border-slate-800 backdrop-blur-md px-3.5 py-1.5 rounded-full shadow-md">
+              <span className="font-bold text-sm bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">
+                FinSaathi AI
+              </span>
+              <span className="text-[10px] text-slate-400 font-mono border-l border-slate-700 pl-2">
+                Voice for Bharat Challenge
+              </span>
+            </div>
+            <span className="text-foreground font-mono text-xs font-bold tracking-wider uppercase pointer-events-auto bg-slate-900/80 border border-slate-800 backdrop-blur-md px-3 py-1.5 rounded-full">
+              Powered by{' '}
+              <span className="text-emerald-400 font-semibold">Murf AI</span> &{' '}
               <a
                 target="_blank"
                 rel="noopener noreferrer"
                 href="https://docs.livekit.io/agents"
-                className="underline underline-offset-4"
+                className="underline underline-offset-4 text-emerald-400"
               >
-                LiveKit Agents
+                LiveKit
               </a>
             </span>
           </header>
