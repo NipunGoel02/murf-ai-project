@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { AccessToken, type AccessTokenOptions, type VideoGrant } from 'livekit-server-sdk';
 import { RoomConfiguration } from '@livekit/protocol';
 
@@ -18,7 +18,7 @@ const AGENT_NAME = process.env.AGENT_NAME;
 // don't cache the results
 export const revalidate = 0;
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     if (LIVEKIT_URL === undefined) {
       throw new Error('LIVEKIT_URL is not defined');
@@ -43,10 +43,19 @@ export async function POST(req: Request) {
         { ignoreUnknownFields: true }
       );
     }
-      
+
+    // Stable caller identity across calls.
+    // Use a persistent cookie so the same browser is always recognized as the
+    // same caller, letting the agent greet returning users by name.
+    const CALLER_COOKIE = 'finsaathi_user_id';
+    let callerId = req.cookies.get(CALLER_COOKIE)?.value;
+    if (!callerId) {
+      callerId = `voice_assistant_user_${Math.floor(Math.random() * 1_000_000_000)}`;
+    }
+
     // Generate participant token
     const participantName = 'user';
-    const participantIdentity = `voice_assistant_user_${Math.floor(Math.random() * 10_000)}`;
+    const participantIdentity = callerId;
     const roomName = `voice_assistant_room_${Math.floor(Math.random() * 10_000)}`;
 
     const participantToken = await createParticipantToken(
@@ -65,7 +74,15 @@ export async function POST(req: Request) {
     const headers = new Headers({
       'Cache-Control': 'no-store',
     });
-    return NextResponse.json(data, { headers });
+    const response = NextResponse.json(data, { headers });
+    // Persist the stable identity so returning callers are recognized.
+    response.cookies.set(CALLER_COOKIE, callerId, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 365, // 1 year
+    });
+    return response;
   } catch (error) {
     if (error instanceof Error) {
       console.error(error);
