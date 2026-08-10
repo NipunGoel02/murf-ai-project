@@ -1,0 +1,69 @@
+{
+  "schemes": [
+    {
+      "scheme_id": "PMMY",
+      "name": "Pradhan Mantri Mudra Yojana",
+      "category": "Business Loan",
+      "eligibility": {
+        "citizenship": "Indian citizen",
+        "minimum_age": 18,
+        "business_type": [
+          "Non-farm micro enterprise",
+          "Non-farm small enterprise",
+          "Self-employed business",
+          "Existing or aspiring entrepreneur"
+        ],
+        "purpose": "Business purpose only"
+      },
+      "documents": [
+        "Proof of identity",
+        "Proof of address",
+        "Bank account details",
+        "Business proposal or plan"
+      ],
+      "source": "Government of India / myScheme",
+      "source_url": "https://www.mudra.org.in/",
+      "last_verified": "2026-07-01"
+    },
+    {
+      "scheme_id": "PMJJBY",
+      "name": "Pradhan Mantri Jeevan Jyoti Bima Yojana",
+      "category": "Life Insurance",
+      "eligibility": {
+        "citizenship": "Indian citizen",
+        "minimum_age": 18,
+        "maximum_age": 50,
+        "savings_bank_account_required": true,
+        "auto_debit_required": true
+      },
+      "documents": [
+        "Savings bank account details",
+        "KYC proof of identity",
+        "KYC proof of address"
+      ],
+      "source": "Government of India / myScheme",
+      "source_url": "https://jansuraksha.gov.in/PMJJBY.aspx",
+      "last_verified": "2026-07-01"
+    },
+    {
+      "scheme_id": "PMSBY",
+      "name": "Pradhan Mantri Suraksha Bima Yojana",
+      "category": "Accident Insurance",
+      "eligibility": {
+        "citizenship": "Indian citizen",
+        "minimum_age": 18,
+        "maximum_age": 70,
+        "savings_bank_account_required": true,
+        "auto_debit_required": true
+      },
+      "documents": [
+        "Savings bank account details",
+        "KYC proof of identity",
+        "KYC proof of address"
+      ],
+      "source": "Government of India / myScheme",
+      "source_url": "https://jansuraksha.gov.in/PMSBY.aspx",
+      "last_verified": "2026-07-01"
+    }
+  ]
+}
