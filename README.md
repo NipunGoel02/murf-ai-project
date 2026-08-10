@@ -1,4 +1,34 @@
-# Voice Agent Starter — Powered by Murf Falcon
+# FinSaathi AI — Voice Agent for Financial Services
+
+FinSaathi AI is a multilingual voice assistant built with LiveKit, Murf Falcon TTS, Deepgram STT, and Google Gemini. It is designed for the Murf AI Voice for Bharat Challenge 2026 and focuses on financial-services conversations, especially government scheme guidance and eligibility checks.
+
+This project preserves the existing LiveKit voice-agent architecture while adding a Day 5 financial-services capability: the agent can collect eligibility information from the caller and use a real function tool to check whether the user may be eligible for supported government schemes.
+
+The core idea is simple:
+
+1. The user speaks in English, Hindi, or Hinglish.
+2. The agent understands the speech with Deepgram STT.
+3. Gemini processes the request and decides whether to answer directly or call a tool.
+4. Murf Falcon converts the response into natural voice output.
+5. The agent can use the stored local dataset in `backend/data/financial_schemes.json` for scheme eligibility checks.
+
+---
+
+## Project Overview
+
+FinSaathi AI is a voice-first financial assistant for:
+
+- Government scheme awareness
+- Financial-services guidance
+- Eligibility conversations
+- Safe, non-judgmental financial support
+- Multilingual support in English, Hindi, and Hinglish
+
+It is not a bank employee, government officer, or financial advisor. It provides general information and eligibility guidance only, and it never guarantees approval or financial outcomes.
+
+---
+
+## Why Murf Falcon
 
 Build a production voice AI agent in 5 minutes. Powered by the fastest TTS on the market - swap the system prompt to build anything from customer support to language tutors.
 
@@ -119,6 +149,78 @@ cd frontend && pnpm dev
 Then open **http://localhost:3000** in your browser.
 
 You should now see the voice agent UI. Click **Start talking**, allow microphone access, and speak — the agent will respond with Murf Falcon TTS. Ensure your backend and (if using Option B) LiveKit server are running.
+
+---
+
+## Day 5 — Scheme Eligibility Tool
+
+This project now includes a Day 5 Financial Services enhancement for the Murf AI Voice for Bharat Challenge.
+
+### FinSaathi AI Day 5 capability
+
+FinSaathi AI can now help users check whether they may be eligible for supported government financial schemes through a real function/tool call.
+
+### Implemented tool
+
+- Tool name: `check_scheme_eligibility`
+- Purpose: evaluate a user's eligibility answers against stored scheme rules
+- Trigger: used only after the agent has collected the necessary information from the user
+
+### Eligibility dataset
+
+For eligibility checking, this project uses the local JSON file:
+
+- `backend/data/financial_schemes.json`
+
+This file contains the financial scheme rules and metadata used by the tool. It is the source of truth for the Day 5 eligibility logic in this project.
+
+### Supported schemes
+
+- `PMMY` — Pradhan Mantri Mudra Yojana
+- `PMJJBY` — Pradhan Mantri Jeevan Jyoti Bima Yojana
+- `PMSBY` — Pradhan Mantri Suraksha Bima Yojana
+
+### Data source
+
+The scheme details in `financial_schemes.json` are based on official Government of India / myScheme information and public references, including:
+
+- PMMY: https://www.mudra.org.in/
+- PMJJBY: https://jansuraksha.gov.in/PMJJBY.aspx
+- PMSBY: https://jansuraksha.gov.in/PMSBY.aspx
+
+### Why a local JSON file is used
+
+A local dataset was used because the Day 5 requirement is to implement a working eligibility-check flow in the existing voice agent with real scheme data, without depending on an external API. The file `backend/data/financial_schemes.json` keeps the feature reliable, offline-friendly, and easy to test.
+
+### How the eligibility check works
+
+1. The user asks about a government scheme or eligibility.
+2. FinSaathi AI asks for the required information one step at a time.
+3. Once the required answers are available, the agent calls `check_scheme_eligibility(...)`.
+4. The tool reads `backend/data/financial_schemes.json` and compares the answers against the relevant rule set.
+5. The result is returned to the LLM and spoken back to the user in a safe, non-guaranteed way.
+
+### Safety and failure handling
+
+The eligibility tool is designed to be safe and responsible:
+
+- It does not ask for OTPs, PINs, passwords, bank credentials, Aadhaar, or PAN.
+- It never guarantees approval or scheme acceptance.
+- If the dataset is missing, invalid, or the scheme is unsupported, the agent gives a clear failure response instead of guessing.
+
+### Example conversation
+
+Example:
+
+- User: "Mujhe government loan scheme ke baare mein jaana hai."
+- Agent: "Bilkul. Aap kis purpose ke liye loan chahte hain?"
+- User: "Business ke liye."
+- Agent: "Aapki age kya hai?"
+- User: "28."
+- Agent: "Kya aap Indian citizen hain?"
+- User: "Haan."
+
+Once the information is complete, the agent checks the scheme using `financial_schemes.json` and explains the result.
 
 ---
 
