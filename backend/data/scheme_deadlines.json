@@ -1,0 +1,22 @@
+{
+  "deadlines": [
+    {
+      "scheme_id": "LABOUR_WELFARE_SCHOLARSHIP_PRE_MATRIC_2026",
+      "name": "Educational Scholarship for Children of Beedi, Cine and Mine Workers - Pre-Matric",
+      "deadline": "2026-08-18",
+      "application_portal": "National Scholarship Portal",
+      "source": "Government of India, Ministry of Labour & Employment",
+      "source_url": "https://www.pib.gov.in/PressReleasePage.aspx?PRID=2271267",
+      "last_verified": "2026-08-11"
+    },
+    {
+      "scheme_id": "LABOUR_WELFARE_SCHOLARSHIP_POST_MATRIC_2026",
+      "name": "Educational Scholarship for Children of Beedi, Cine and Mine Workers - Post-Matric",
+      "deadline": "2026-10-31",
+      "application_portal": "National Scholarship Portal",
+      "source": "Government of India, Ministry of Labour & Employment",
+      "source_url": "https://www.pib.gov.in/PressReleasePage.aspx?PRID=2271267",
+      "last_verified": "2026-08-11"
+    }
+  ]
+}
