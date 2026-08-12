@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import re
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,7 +24,13 @@ from livekit.agents import (
 from livekit.plugins import deepgram, google, murf, noise_cancellation, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
-from database import find_user, init_db, save_user, update_facts
+from database import (
+    find_user,
+    init_db,
+    save_user,
+    update_facts,
+    create_escalation,
+)
 from prompt import SYSTEM_PROMPT
 
 
@@ -112,12 +119,107 @@ def _find_scheme(
 load_dotenv(".env.local")
 
 
+# ============================================================
+# DAY 7 ESCALATION INSTRUCTIONS
+# ============================================================
+
+DAY_7_ESCALATION_INSTRUCTIONS = """
+
+HUMAN SUPPORT ESCALATION RULES:
+
+You are FinSaathi, a financial-services voice assistant.
+
+Normally, solve informational questions yourself.
+
+DO NOT escalate normal questions such as:
+- What is PMMY?
+- What is this scheme?
+- Am I eligible?
+- What documents are required?
+- What is the deadline?
+- What are the benefits?
+- How does the application process work?
+
+You MUST consider human support when one of these situations occurs:
+
+1. POSSIBLE FRAUD
+
+Examples:
+- User reports an unknown transaction.
+- User says they did not authorize a payment.
+- User says money was deducted without authorization.
+- User reports suspicious financial activity.
+- User believes their transaction is fraudulent.
+
+You cannot independently investigate, reverse, freeze,
+or dispute a transaction unless a specific tool exists
+for that action.
+
+2. DECISION OUTSIDE YOUR SCOPE
+
+Examples:
+- User asks for final financial approval or rejection.
+- User asks you to reverse a transaction.
+- User asks you to dispute a transaction.
+- User asks you to freeze an account.
+- User asks for an account-specific decision that you
+  are not authorized or technically able to make.
+
+3. USER REQUESTS HUMAN SUPPORT
+
+If the user explicitly asks for a human representative,
+human support, or support staff, offer to create a support
+request.
+
+IMPORTANT CONSENT RULE:
+
+NEVER create an escalation silently.
+
+Before calling create_escalation:
+
+1. Explain briefly why human support is appropriate.
+2. Tell the user that a support request can be created.
+3. Ask for explicit confirmation.
+4. Wait for the user's answer.
+5. Only if the user clearly says YES / Haan / Yes / Sure /
+   confirms the request, call create_escalation.
+
+If the user says NO:
+- Do not call create_escalation.
+- Continue the conversation normally.
+
+When creating an escalation:
+
+- Use a safe summary.
+- Never include OTP.
+- Never include PIN.
+- Never include CVV.
+- Never include passwords.
+- Never include full bank account numbers.
+- Never include full card numbers.
+- Never include government ID numbers.
+
+After create_escalation succeeds:
+
+Tell the user:
+"Done. I have created a human support request.
+Your reference ID is [REFERENCE_ID]."
+
+Do not promise an immediate human response.
+Do not claim that a human has already contacted the user.
+"""
+
+
 class Assistant(Agent):
 
     def __init__(self) -> None:
 
         super().__init__(
-            instructions=SYSTEM_PROMPT
+            instructions=(
+                SYSTEM_PROMPT
+                + "\n\n"
+                + DAY_7_ESCALATION_INSTRUCTIONS
+            )
         )
 
         init_db()
@@ -488,6 +590,209 @@ class Assistant(Agent):
             return (
                 "I could not save your information "
                 "because of a database error. "
+                "Please try again."
+            )
+
+    # ========================================================
+    # DAY 7 - HUMAN ESCALATION TOOL
+    # ========================================================
+
+    @function_tool
+    async def create_escalation(
+        self,
+        context: RunContext,
+        reason: str,
+        summary: str,
+        what_checked: str,
+        urgency: str,
+        language: str,
+        preferred_followup: str,
+    ) -> str:
+
+        """
+        Create a human-support request.
+
+        IMPORTANT:
+        Only call this AFTER the user has explicitly
+        consented to creating a human-support request.
+
+        Valid reasons:
+        - possible_fraud
+        - decision_outside_agent_scope
+        - user_requested_human
+
+        Never include sensitive credentials such as:
+        - OTP
+        - PIN
+        - CVV
+        - password
+        - full bank account number
+        - full card number
+        - government ID number
+        """
+
+        user_id = self._caller_user_id(
+            context
+        )
+
+        logger.info(
+            "create_escalation - user_id=%r reason=%s",
+            user_id,
+            reason,
+        )
+
+        if not user_id:
+
+            logger.warning(
+                "Cannot create escalation: "
+                "caller identity not found"
+            )
+
+            return (
+                "I could not identify the caller, "
+                "so I could not create the support request."
+            )
+
+        reason = (
+            reason
+            .strip()
+            .lower()
+        )
+
+        allowed_reasons = {
+            "possible_fraud",
+            "decision_outside_agent_scope",
+            "user_requested_human",
+        }
+
+        if reason not in allowed_reasons:
+
+            logger.warning(
+                "Invalid escalation reason: %s",
+                reason,
+            )
+
+            return (
+                "This issue does not qualify "
+                "for the available human support flow."
+            )
+
+        urgency = (
+            urgency
+            .strip()
+            .upper()
+        )
+
+        allowed_urgency = {
+            "LOW",
+            "MEDIUM",
+            "HIGH",
+            "EMERGENCY",
+        }
+
+        if urgency not in allowed_urgency:
+            urgency = "MEDIUM"
+
+        # ----------------------------------------------------
+        # Protect against accidental sensitive information
+        # ----------------------------------------------------
+
+        sensitive_patterns = [
+            r"\botp\b",
+            r"\bpin\b",
+            r"\bcvv\b",
+            r"\bpassword\b",
+            r"\bbank\s*account\s*number\b",
+            r"\baccount\s*number\b",
+            r"\bcard\s*number\b",
+            r"\bcredit\s*card\s*number\b",
+            r"\bdebit\s*card\s*number\b",
+            r"\baadhaar\b",
+            r"\bpan\s*number\b",
+        ]
+
+        combined_text = (
+            f"{summary} "
+            f"{what_checked}"
+        ).lower()
+
+        for pattern in sensitive_patterns:
+
+            if re.search(
+                pattern,
+                combined_text,
+            ):
+
+                logger.warning(
+                    "Potential sensitive information "
+                    "detected in escalation data. "
+                    "Escalation rejected."
+                )
+
+                return (
+                    "I cannot include sensitive financial "
+                    "credentials in the support request. "
+                    "Please provide a safe summary without "
+                    "such information."
+                )
+
+        # ----------------------------------------------------
+        # Generate reference ID
+        # ----------------------------------------------------
+
+        request_id = (
+            "FS-"
+            + uuid.uuid4()
+            .hex[:6]
+            .upper()
+        )
+
+        created_at = (
+            datetime.now(
+                timezone.utc
+            )
+            .replace(
+                microsecond=0
+            )
+            .isoformat()
+        )
+
+        try:
+
+            create_escalation(
+                request_id=request_id,
+                user_id=user_id,
+                reason=reason,
+                summary=summary.strip(),
+                what_checked=what_checked.strip(),
+                urgency=urgency,
+                language=language.strip()
+                if language
+                else None,
+                preferred_followup=(
+                    preferred_followup.strip()
+                    if preferred_followup
+                    else None
+                ),
+                created_at=created_at,
+            )
+
+            logger.info(
+                "Human support escalation created: %s",
+                request_id,
+            )
+
+            return request_id
+
+        except Exception:
+
+            logger.exception(
+                "Failed to create human support escalation"
+            )
+
+            return (
+                "I could not create the human support "
+                "request because of a database error. "
                 "Please try again."
             )
 
