@@ -30,6 +30,7 @@ from database import (
     save_user,
     update_facts,
     create_escalation,
+    record_call_outcome,
 )
 from prompt import SYSTEM_PROMPT
 
@@ -212,7 +213,9 @@ Do not claim that a human has already contacted the user.
 
 class Assistant(Agent):
 
-    def __init__(self) -> None:
+    def __init__(self, analytics_tracker: dict) -> None:
+
+        self.analytics_tracker = analytics_tracker
 
         super().__init__(
             instructions=(
@@ -1046,6 +1049,15 @@ class Assistant(Agent):
             ),
         }
 
+        # Day 8: completing an eligibility check is a successful call.
+        # The result may be eligible OR ineligible; the success condition
+        # is that the requested eligibility check was completed.
+        if result.get("success") is True:
+            self.analytics_tracker["success"] = True
+            self.analytics_tracker["success_reason"] = (
+                "financial_scheme_eligibility_check_completed"
+            )
+
         logger.info(
             "Scheme eligibility check completed "
             "for %s: eligible=%s",
@@ -1127,6 +1139,22 @@ async def my_agent(
 
     ctx.log_context_fields = {
         "room": ctx.room.name,
+    }
+
+    # -------------------------------------------------
+    # DAY 8 CALL ANALYTICS TRACKING
+    # -------------------------------------------------
+
+    call_id = "CALL-" + uuid.uuid4().hex[:8].upper()
+    started_at = (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+    )
+
+    analytics_tracker = {
+        "success": False,
+        "success_reason": None,
     }
 
     # -------------------------------------------------
@@ -1409,13 +1437,38 @@ async def my_agent(
 
     await ctx.connect()
 
+    # Wait for the caller so we can record a safe user_id and
+    # whether this session came from the browser or SIP.
+    caller_participant = await ctx.wait_for_participant()
+
+    caller_user_id = caller_participant.identity
+
+    if (
+        caller_participant.kind
+        == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
+    ):
+        call_channel = "sip"
+    else:
+        call_channel = "browser"
+
+    logger.info(
+        "Day 8 analytics started: call_id=%s user_id=%s channel=%s",
+        call_id,
+        caller_user_id,
+        call_channel,
+    )
+
     # -------------------------------------------------
     # START AGENT SESSION
     # -------------------------------------------------
 
+    assistant = Assistant(
+        analytics_tracker=analytics_tracker
+    )
+
     await session.start(
 
-        agent=Assistant(),
+        agent=assistant,
 
         room=ctx.room,
 
@@ -1437,6 +1490,57 @@ async def my_agent(
         ),
 
     )
+
+    # -------------------------------------------------
+    # DAY 8 - SAVE OUTCOME WHEN SESSION ENDS
+    # -------------------------------------------------
+
+    @session.on("close")
+    def on_session_close(ev):
+
+        outcome = (
+            "SUCCESS"
+            if analytics_tracker["success"]
+            else "FAILED"
+        )
+
+        ended_at = (
+            datetime.now(timezone.utc)
+            .replace(microsecond=0)
+            .isoformat()
+        )
+
+        try:
+
+            record_call_outcome(
+                call_id=call_id,
+                user_id=caller_user_id,
+                channel=call_channel,
+                outcome=outcome,
+                success_reason=(
+                    analytics_tracker["success_reason"]
+                    if outcome == "SUCCESS"
+                    else None
+                ),
+                started_at=started_at,
+                ended_at=ended_at,
+            )
+
+            logger.info(
+                "DAY 8 CALL OUTCOME SAVED: "
+                "call_id=%s outcome=%s reason=%s close_reason=%s",
+                call_id,
+                outcome,
+                analytics_tracker["success_reason"],
+                getattr(ev.reason, "value", ev.reason),
+            )
+
+        except Exception:
+
+            logger.exception(
+                "Failed to save Day 8 call analytics for %s",
+                call_id,
+            )
 
     # -------------------------------------------------
     # OUTBOUND AI GREETING
