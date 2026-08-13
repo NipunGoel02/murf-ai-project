@@ -10,6 +10,7 @@ from database import (
     get_escalations,
     get_escalation,
     update_escalation,
+    get_call_analytics_summary,
     init_db,
 )
 
@@ -20,7 +21,7 @@ from database import (
 
 app = FastAPI(
     title="FinSaathi Human Support API",
-    version="1.0.0",
+    version="1.1.0",
 )
 
 
@@ -81,6 +82,34 @@ def health():
     return {
         "success": True,
         "status": "healthy",
+    }
+
+
+# ============================================================
+# DAY 8 - CALL ANALYTICS
+# ============================================================
+
+@app.get("/api/analytics")
+def get_analytics():
+    """
+    Return call analytics for the Day 8 dashboard.
+
+    Values come directly from the call_analytics
+    table in users.db.
+
+    Returns:
+        total_calls
+        successful_calls
+        failed_calls
+    """
+
+    analytics = (
+        get_call_analytics_summary()
+    )
+
+    return {
+        "success": True,
+        "analytics": analytics,
     }
 
 
