@@ -1,14 +1,17 @@
-"""SQLite-backed persistence for caller profiles and human-support escalations.
+"""SQLite-backed persistence for caller profiles, human-support
+escalations, and call analytics.
 
-Stores who the caller is (name, ID) along with a few facts relevant to the
-Financial Services track.
+Stores who the caller is (name, ID) along with a few facts relevant
+to the Financial Services track.
 
 The agent reads and writes through the functions in this module.
 
 Privacy notes:
 - Never store account numbers, card numbers, OTPs, or ID numbers.
-- Only structured facts (schemes already checked, eligibility answers) are kept.
+- Only structured facts are kept.
 - Escalation summaries must not contain sensitive financial credentials.
+- Call analytics must not contain passwords, OTPs, PINs, account numbers,
+  medical details, or full conversation transcripts.
 """
 
 from __future__ import annotations
@@ -22,13 +25,24 @@ from pathlib import Path
 
 logger = logging.getLogger("agent")
 
-# DB file lives in backend/data/users.db
-_DB_DIR = Path(__file__).resolve().parent.parent / "data"
-_DB_PATH = os.environ.get("FINSAATHI_DB_PATH", str(_DB_DIR / "users.db"))
+
+# ============================================================
+# DATABASE PATH
+# ============================================================
+
+_DB_DIR = (
+    Path(__file__).resolve().parent.parent
+    / "data"
+)
+
+_DB_PATH = os.environ.get(
+    "FINSAATHI_DB_PATH",
+    str(_DB_DIR / "users.db"),
+)
 
 
 # ============================================================
-# EXISTING DAY 6 USERS TABLE
+# DAY 6 - USERS TABLE
 # ============================================================
 
 _SCHEMA = """
@@ -40,8 +54,8 @@ CREATE TABLE IF NOT EXISTS users (
     last_interaction      REAL NOT NULL,
     phone_number          TEXT,
     phone_consent         INTEGER,
-    outbound_opt_out      INTEGER DEFAULT 0,
-    eligibility_status    TEXT,
+    outbound_opt_out     INTEGER DEFAULT 0,
+    eligibility_status   TEXT,
     scheme_id             TEXT,
     eligibility_checked_at TEXT,
     last_outbound_call    TEXT
@@ -71,20 +85,53 @@ CREATE TABLE IF NOT EXISTS escalations (
 """
 
 
+# ============================================================
+# DAY 8 - CALL ANALYTICS TABLE
+# ============================================================
+
+_CALL_ANALYTICS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS call_analytics (
+    call_id          TEXT PRIMARY KEY,
+    user_id          TEXT,
+    channel          TEXT NOT NULL,
+    outcome          TEXT NOT NULL,
+    success_reason   TEXT,
+    started_at       TEXT NOT NULL,
+    ended_at         TEXT NOT NULL
+);
+"""
+
+
+# ============================================================
+# DATABASE CONNECTION
+# ============================================================
+
 def _connect() -> sqlite3.Connection:
     """Create and return a SQLite connection."""
 
-    _DB_DIR.mkdir(parents=True, exist_ok=True)
+    _DB_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
-    conn = sqlite3.connect(_DB_PATH)
+    conn = sqlite3.connect(
+        _DB_PATH
+    )
 
     conn.row_factory = sqlite3.Row
 
     return conn
 
 
-def _normalize_bool(value: object) -> int | None:
-    """Convert common boolean-like values into SQLite integer values."""
+# ============================================================
+# BOOLEAN NORMALIZATION
+# ============================================================
+
+def _normalize_bool(
+    value: object,
+) -> int | None:
+
+    """Convert common boolean-like values into SQLite integers."""
 
     if value is None:
         return None
@@ -97,7 +144,10 @@ def _normalize_bool(value: object) -> int | None:
 
     if isinstance(value, str):
 
-        normalized = value.strip().lower()
+        normalized = (
+            value.strip()
+            .lower()
+        )
 
         if normalized in {
             "1",
@@ -122,65 +172,98 @@ def _normalize_bool(value: object) -> int | None:
     return None
 
 
+# ============================================================
+# SCHEMA
+# ============================================================
+
 def _ensure_schema() -> None:
-    """Create all required database tables and missing Day 6 columns."""
+    """Create all required database tables."""
 
     with _connect() as conn:
 
-        # Existing Day 6 users table
-        conn.execute(_SCHEMA)
+        # Day 6
+        conn.execute(
+            _SCHEMA
+        )
 
-        # New Day 7 escalations table
-        conn.execute(_ESCALATION_SCHEMA)
+        # Day 7
+        conn.execute(
+            _ESCALATION_SCHEMA
+        )
 
-        # Check existing columns in users table
+        # Day 8
+        conn.execute(
+            _CALL_ANALYTICS_SCHEMA
+        )
+
+        # Check existing users columns
         existing_columns = {
             row[1]
-            for row in conn.execute("PRAGMA table_info(users)")
+            for row in conn.execute(
+                "PRAGMA table_info(users)"
+            )
         }
 
-        # Existing Day 6 columns
+        # Preserve existing Day 6 schema migration
         for column_name, ddl in [
+
             (
                 "phone_number",
                 "ALTER TABLE users ADD COLUMN phone_number TEXT",
             ),
+
             (
                 "phone_consent",
                 "ALTER TABLE users ADD COLUMN phone_consent INTEGER",
             ),
+
             (
                 "outbound_opt_out",
                 "ALTER TABLE users ADD COLUMN outbound_opt_out INTEGER DEFAULT 0",
             ),
+
             (
                 "eligibility_status",
                 "ALTER TABLE users ADD COLUMN eligibility_status TEXT",
             ),
+
             (
                 "scheme_id",
                 "ALTER TABLE users ADD COLUMN scheme_id TEXT",
             ),
+
             (
                 "eligibility_checked_at",
                 "ALTER TABLE users ADD COLUMN eligibility_checked_at TEXT",
             ),
+
             (
                 "last_outbound_call",
                 "ALTER TABLE users ADD COLUMN last_outbound_call TEXT",
             ),
+
         ]:
 
             if column_name not in existing_columns:
-                conn.execute(ddl)
+
+                conn.execute(
+                    ddl
+                )
 
         conn.commit()
 
 
+# ============================================================
+# INIT DATABASE
+# ============================================================
+
 def init_db() -> None:
     """Create the database and all required tables."""
 
-    _DB_DIR.mkdir(parents=True, exist_ok=True)
+    _DB_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     _ensure_schema()
 
@@ -191,11 +274,14 @@ def init_db() -> None:
 
 
 # ============================================================
-# EXISTING DAY 6 USER FUNCTIONS
+# DAY 6 - USER FUNCTIONS
 # ============================================================
 
-def find_user(user_id: str) -> dict | None:
-    """Return a saved profile for a caller, or None if unknown."""
+def find_user(
+    user_id: str,
+) -> dict | None:
+
+    """Return a saved profile for a caller."""
 
     if not user_id:
         return None
@@ -229,7 +315,9 @@ def find_user(user_id: str) -> dict | None:
         row["phone_number"]
         and "phone_number" not in facts
     ):
-        facts["phone_number"] = row["phone_number"]
+        facts["phone_number"] = (
+            row["phone_number"]
+        )
 
     if (
         row["phone_consent"] is not None
@@ -259,7 +347,9 @@ def find_user(user_id: str) -> dict | None:
         row["scheme_id"]
         and "scheme_id" not in facts
     ):
-        facts["scheme_id"] = row["scheme_id"]
+        facts["scheme_id"] = (
+            row["scheme_id"]
+        )
 
     if (
         row["eligibility_checked_at"]
@@ -280,10 +370,16 @@ def find_user(user_id: str) -> dict | None:
     return {
         "user_id": row["user_id"],
         "name": row["name"],
-        "language_preference": row["language_preference"],
+        "language_preference": row[
+            "language_preference"
+        ],
         "facts": facts,
-        "last_interaction": row["last_interaction"],
-        "phone_number": row["phone_number"],
+        "last_interaction": row[
+            "last_interaction"
+        ],
+        "phone_number": row[
+            "phone_number"
+        ],
         "phone_consent": (
             bool(row["phone_consent"])
             if row["phone_consent"] is not None
@@ -294,8 +390,12 @@ def find_user(user_id: str) -> dict | None:
             if row["outbound_opt_out"] is not None
             else None
         ),
-        "eligibility_status": row["eligibility_status"],
-        "scheme_id": row["scheme_id"],
+        "eligibility_status": row[
+            "eligibility_status"
+        ],
+        "scheme_id": row[
+            "scheme_id"
+        ],
         "eligibility_checked_at": row[
             "eligibility_checked_at"
         ],
@@ -318,33 +418,42 @@ def save_user(
     eligibility_checked_at: str | None = None,
     last_outbound_call: str | None = None,
 ) -> None:
-    """Insert a new caller profile or update an existing one."""
+
+    """Insert or update a caller profile."""
 
     if not user_id or not name:
         return
 
     _ensure_schema()
 
-    facts_payload = dict(facts or {})
+    facts_payload = dict(
+        facts or {}
+    )
 
     if phone_number is not None:
-        facts_payload["phone_number"] = phone_number
+        facts_payload[
+            "phone_number"
+        ] = phone_number
 
     if phone_consent is not None:
-        facts_payload["phone_consent"] = phone_consent
+        facts_payload[
+            "phone_consent"
+        ] = phone_consent
 
     if outbound_opt_out is not None:
-        facts_payload["outbound_opt_out"] = (
-            outbound_opt_out
-        )
+        facts_payload[
+            "outbound_opt_out"
+        ] = outbound_opt_out
 
     if eligibility_status is not None:
-        facts_payload["eligibility_status"] = (
-            eligibility_status
-        )
+        facts_payload[
+            "eligibility_status"
+        ] = eligibility_status
 
     if scheme_id is not None:
-        facts_payload["scheme_id"] = scheme_id
+        facts_payload[
+            "scheme_id"
+        ] = scheme_id
 
     if eligibility_checked_at is not None:
         facts_payload[
@@ -397,7 +506,9 @@ def save_user(
                 user_id,
                 name,
                 language_preference,
-                json.dumps(facts_payload),
+                json.dumps(
+                    facts_payload
+                ),
                 now,
                 facts_payload.get(
                     "phone_number"
@@ -439,14 +550,17 @@ def update_facts(
     user_id: str,
     facts: dict,
 ) -> None:
-    """Merge new facts into a caller's existing profile."""
+
+    """Merge new facts into a caller profile."""
 
     if not user_id or not facts:
         return
 
     _ensure_schema()
 
-    profile = find_user(user_id)
+    profile = find_user(
+        user_id
+    )
 
     if profile is None:
         return
@@ -455,18 +569,24 @@ def update_facts(
         profile["facts"]
     )
 
-    merged.update(facts)
+    merged.update(
+        facts
+    )
 
     phone_number = merged.get(
         "phone_number"
     )
 
     phone_consent = _normalize_bool(
-        merged.get("phone_consent")
+        merged.get(
+            "phone_consent"
+        )
     )
 
     outbound_opt_out = _normalize_bool(
-        merged.get("outbound_opt_out")
+        merged.get(
+            "outbound_opt_out"
+        )
     )
 
     eligibility_status = merged.get(
@@ -505,7 +625,9 @@ def update_facts(
             WHERE user_id = ?
             """,
             (
-                json.dumps(merged),
+                json.dumps(
+                    merged
+                ),
                 time.time(),
                 phone_number,
                 phone_consent,
@@ -539,13 +661,8 @@ def create_escalation(
     preferred_followup: str | None,
     created_at: str,
 ) -> None:
-    """
-    Create a new human-support escalation.
 
-    This function only stores structured escalation information.
-    Sensitive credentials such as OTP, PIN, CVV, passwords,
-    card numbers, and account numbers must never be passed here.
-    """
+    """Create a new human-support escalation."""
 
     if not request_id:
         raise ValueError(
@@ -620,12 +737,8 @@ def create_escalation(
 def get_escalations(
     status: str | None = None,
 ) -> list[dict]:
-    """
-    Return human-support escalation requests.
 
-    If status is provided, only requests with that status
-    are returned.
-    """
+    """Return human-support escalation requests."""
 
     _ensure_schema()
 
@@ -662,6 +775,7 @@ def get_escalations(
 def get_escalation(
     request_id: str,
 ) -> dict | None:
+
     """Return one escalation by reference ID."""
 
     if not request_id:
@@ -691,15 +805,8 @@ def update_escalation(
     status: str,
     resolution: str | None = None,
 ) -> bool:
-    """
-    Update an escalation status.
 
-    Supported status values:
-
-    OPEN
-    IN_PROGRESS
-    RESOLVED
-    """
+    """Update an escalation status."""
 
     allowed_statuses = {
         "OPEN",
@@ -710,6 +817,7 @@ def update_escalation(
     status = status.upper().strip()
 
     if status not in allowed_statuses:
+
         raise ValueError(
             f"Invalid escalation status: {status}"
         )
@@ -765,7 +873,9 @@ def update_escalation(
 
         conn.commit()
 
-    updated = cursor.rowcount > 0
+    updated = (
+        cursor.rowcount > 0
+    )
 
     if updated:
 
@@ -776,3 +886,193 @@ def update_escalation(
         )
 
     return updated
+
+
+# ============================================================
+# DAY 8 - CALL ANALYTICS
+# ============================================================
+
+def record_call_outcome(
+    call_id: str,
+    user_id: str | None,
+    channel: str,
+    outcome: str,
+    success_reason: str | None,
+    started_at: str,
+    ended_at: str,
+) -> None:
+
+    """
+    Record the final outcome of a call/session.
+
+    outcome must be:
+        SUCCESS
+        FAILED
+
+    This function intentionally stores only analytics metadata.
+    It must not receive or store sensitive caller information.
+    """
+
+    if not call_id:
+        raise ValueError(
+            "call_id is required"
+        )
+
+    if not channel:
+        raise ValueError(
+            "channel is required"
+        )
+
+    outcome = (
+        outcome.strip().upper()
+    )
+
+    allowed_outcomes = {
+        "SUCCESS",
+        "FAILED",
+    }
+
+    if outcome not in allowed_outcomes:
+
+        raise ValueError(
+            f"Invalid call outcome: {outcome}"
+        )
+
+    if not started_at:
+        raise ValueError(
+            "started_at is required"
+        )
+
+    if not ended_at:
+        raise ValueError(
+            "ended_at is required"
+        )
+
+    _ensure_schema()
+
+    with _connect() as conn:
+
+        conn.execute(
+            """
+            INSERT INTO call_analytics (
+                call_id,
+                user_id,
+                channel,
+                outcome,
+                success_reason,
+                started_at,
+                ended_at
+            )
+            VALUES (
+                ?, ?, ?, ?, ?, ?, ?
+            )
+
+            ON CONFLICT(call_id) DO UPDATE SET
+                user_id = excluded.user_id,
+                channel = excluded.channel,
+                outcome = excluded.outcome,
+                success_reason = excluded.success_reason,
+                started_at = excluded.started_at,
+                ended_at = excluded.ended_at
+            """,
+            (
+                call_id,
+                user_id,
+                channel,
+                outcome,
+                success_reason,
+                started_at,
+                ended_at,
+            ),
+        )
+
+        conn.commit()
+
+    logger.info(
+        "Recorded call analytics: "
+        "call_id=%s channel=%s outcome=%s",
+        call_id,
+        channel,
+        outcome,
+    )
+
+
+def get_call_analytics() -> list[dict]:
+    """Return recorded call analytics."""
+
+    _ensure_schema()
+
+    with _connect() as conn:
+
+        rows = conn.execute(
+            """
+            SELECT
+                call_id,
+                user_id,
+                channel,
+                outcome,
+                success_reason,
+                started_at,
+                ended_at
+
+            FROM call_analytics
+
+            ORDER BY started_at DESC
+            """
+        ).fetchall()
+
+    return [
+        dict(row)
+        for row in rows
+    ]
+
+
+def get_call_analytics_summary() -> dict:
+    """
+    Return the three Day 8 dashboard numbers:
+
+    - total_calls
+    - successful_calls
+    - failed_calls
+    """
+
+    _ensure_schema()
+
+    with _connect() as conn:
+
+        row = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS total_calls,
+
+                SUM(
+                    CASE
+                        WHEN outcome = 'SUCCESS'
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS successful_calls,
+
+                SUM(
+                    CASE
+                        WHEN outcome = 'FAILED'
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS failed_calls
+
+            FROM call_analytics
+            """
+        ).fetchone()
+
+    return {
+        "total_calls": (
+            row["total_calls"] or 0
+        ),
+        "successful_calls": (
+            row["successful_calls"] or 0
+        ),
+        "failed_calls": (
+            row["failed_calls"] or 0
+        ),
+    }
