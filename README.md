@@ -1,4 +1,4 @@
-# 🇮🇳 FinSaathi AI — Voice Agent for Financial Services
+# FinSaathi AI — Voice Agent for Financial Services
 
 **FinSaathi AI** is a multilingual, voice-first financial services assistant built for the **Murf AI — 10 Days of Voice Agents: VoiceForBharat Edition 2026**.
 
